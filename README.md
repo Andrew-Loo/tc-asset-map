@@ -16,6 +16,10 @@ Sources:
 - The Straits Times, 30 Jul 2025: Water supply issues during Toa Payoh blaze affected firefighting operations; SCDF investigating  
   (https://www.straitstimes.com/singapore/water-supply-issues-during-toa-payoh-blaze-affected-firefighting-operations-scdf-investigating)
 
+## Demo Link
+
+Demmo domain: https://tc-asset-map.fmit.sg
+
 ## Features
 - Interactive map of HDB blocks (one marker per block for performance)
 - KPI cards for at-a-glance totals
