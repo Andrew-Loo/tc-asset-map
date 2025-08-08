@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: MIT -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Town Council Asset Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #0f172a;
+      color: #e2e8f0;
+    }
+    .card {
+      background: linear-gradient(145deg, #1e293b, #0f172a);
+      border: 1px solid #334155;
+      color: #f8fafc;
+    }
+    .legend-circle {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+    }
+    .sidebar {
+      background-color: #1e293b;
+    }
+    select, option {
+      background-color: #0f172a;
+      color: #f8fafc;
+    }
+  </style>
+</head>
+<body class="h-screen flex flex-col">
+  <!-- KPI Cards -->
+  <div class="grid grid-cols-4 gap-4 p-4 border-b border-slate-700 shadow-inner">
+    <div class="card p-4 rounded-xl">
+      <p class="text-sm text-slate-400">Total Blocks</p>
+      <p class="text-3xl font-extrabold">800</p>
+    </div>
+    <div class="card p-4 rounded-xl">
+      <p class="text-sm text-slate-400">Assets OK</p>
+      <p class="text-3xl font-extrabold">6,200</p>
+    </div>
+    <div class="card p-4 rounded-xl">
+      <p class="text-sm text-slate-400">Due for Maintenance</p>
+      <p class="text-3xl font-extrabold">120</p>
+    </div>
+    <div class="card p-4 rounded-xl">
+      <p class="text-sm text-slate-400">Faulty Assets</p>
+      <p class="text-3xl font-extrabold">18</p>
+    </div>
+  </div>
+
+  <div class="flex h-full">
+    <!-- Sidebar -->
+    <div class="w-96 sidebar border-r border-slate-700 overflow-y-auto">
+      <div class="p-4 border-b border-slate-600">
+        <h2 class="text-xl font-bold text-slate-100">Asset Summary</h2>
+        <p class="text-sm text-slate-400">Click a block on the map to view asset details.</p>
+
+        <!-- Filter by Asset Type -->
+        <div class="mt-4">
+          <label class="block text-sm font-medium mb-1 text-slate-300">Filter by Asset Type:</label>
+          <select id="asset-filter" class="w-full border border-slate-500 rounded p-2">
+            <option value="all">All</option>
+            <option value="dry">Dry Riser</option>
+            <option value="hose">Fire Hose Reel</option>
+          </select>
+        </div>
+
+        <!-- Map Legend -->
+        <div class="mt-6">
+          <h3 class="text-sm font-medium text-slate-300 mb-2">Legend:</h3>
+          <div class="space-y-2 text-sm">
+            <div class="flex items-center gap-2">
+              <span class="legend-circle bg-green-500"></span>
+              <span>All Assets OK</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="legend-circle bg-yellow-400"></span>
+              <span>Some Assets Due</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="legend-circle bg-red-500"></span>
+              <span>Faulty Assets Present</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="block-info" class="p-4 space-y-2 text-sm">
+        <!-- Dynamic block data goes here -->
+      </div>
+    </div>
+
+    <!-- Map -->
+    <div id="map" class="flex-1"></div>
+  </div>
+
+  <script>
+    const map = L.map('map').setView([1.3521, 103.8198], 12); // Singapore center
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    // Example block data
+    const blocks = [
+      { id: "123A", lat: 1.3101, lng: 103.856, status: "ok", summary: { dry: 2, hose: 5, faulty: 0, due: 0 } },
+      { id: "456B", lat: 1.3401, lng: 103.825, status: "warning", summary: { dry: 1, hose: 5, faulty: 1, due: 1 } },
+      { id: "789C", lat: 1.3721, lng: 103.812, status: "faulty", summary: { dry: 2, hose: 4, faulty: 2, due: 1 } }
+    ];
+
+    const statusColors = {
+      ok: 'green',
+      warning: 'orange',
+      faulty: 'red'
+    };
+
+    let markers = [];
+
+    function renderMarkers(filter = 'all') {
+      markers.forEach(m => map.removeLayer(m));
+      markers = [];
+
+      blocks.forEach(block => {
+        const include =
+          filter === 'all' ||
+          (filter === 'dry' && block.summary.dry > 0) ||
+          (filter === 'hose' && block.summary.hose > 0);
+
+        if (!include) return;
+
+        const marker = L.circleMarker([block.lat, block.lng], {
+          color: statusColors[block.status],
+          radius: 10,
+          fillOpacity: 0.8
+        }).addTo(map);
+
+        marker.on('click', () => {
+          document.getElementById('block-info').innerHTML = `
+            <div>
+              <h3 class="text-lg font-semibold text-white">Block ${block.id}</h3>
+              <p class="text-sm text-slate-300">Status: <span class="font-bold text-${statusColors[block.status]}">${block.status.toUpperCase()}</span></p>
+              <div class="mt-2 text-sm text-slate-200">
+                <p>Dry Risers: ${block.summary.dry}</p>
+                <p>Hose Reels: ${block.summary.hose}</p>
+                <p>Faulty Assets: <span class="text-red-400">${block.summary.faulty}</span></p>
+                <p>Due for Check: <span class="text-yellow-300">${block.summary.due}</span></p>
+              </div>
+            </div>
+          `;
+        });
+
+        markers.push(marker);
+      });
+    }
+
+    document.getElementById('asset-filter').addEventListener('change', (e) => {
+      renderMarkers(e.target.value);
+    });
+
+    renderMarkers();
+  </script>
+</body>
+</html>
