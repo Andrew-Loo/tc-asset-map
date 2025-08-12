@@ -48,19 +48,43 @@
     .seg { display:inline-flex; border:1px solid #334155; border-radius:10px; overflow:hidden; }
     .seg button { padding:6px 10px; font-size:12px; color:#cbd5e1; }
     .seg button.active { background:#0b3b61; color:#e2e8f0; }
-      /* === Cyber-style separators & glow accents === */
+
+    /* === Cyber-style separators & glow accents === */
     :root { --acc1:#f59e0b; --acc1-glow:#fb923c; }
     .card{ position:relative; }
-    /* Top glowing rail on every card */
     .card::after{ content:""; position:absolute; left:10px; right:10px; top:-1px; height:2px; border-radius:1px; background:linear-gradient(90deg, transparent 0, var(--acc1) 50%, transparent 100%); box-shadow:0 0 10px var(--acc1-glow), 0 0 3px var(--acc1); opacity:.9; }
-    /* Vertical separator between cards (centered in the grid gap) */
     #kpi-ribbon .card:not(:first-child)::before,
     #kpi-cases  .card:not(:first-child)::before{ content:""; position:absolute; top:8px; bottom:8px; left:-8px; width:2px; border-radius:1px; background:linear-gradient(180deg, transparent 0, var(--acc1) 50%, transparent 100%); box-shadow:0 0 8px var(--acc1-glow), 0 0 2px var(--acc1); }
-    /* Slight inner glow for panels */
     .sidebar, .tile, .tc-popup .content{ box-shadow: inset 0 0 0 1px #334155, inset 0 0 24px rgba(245,158,11,.08); }
-      /* Framestyle so other boxes get same cyber look */
     .frame{ position:relative; border:1px solid #334155; background:rgba(2,6,23,.35); }
     .frame::after{ content:""; position:absolute; left:10px; right:10px; top:-1px; height:2px; border-radius:1px; background:linear-gradient(90deg, transparent 0, var(--acc1) 50%, transparent 100%); box-shadow:0 0 10px var(--acc1-glow), 0 0 3px var(--acc1); opacity:.9; }
+
+    /* --- Resizable sidebar (desktop) --- */
+    .resizer {
+      position: absolute;
+      right: -6px;            /* sits between sidebar (left) and map (right) */
+      top: 0;
+      width: 12px;
+      height: 100%;
+      cursor: col-resize;
+      background: transparent;
+      z-index: 10;
+    }
+    .resizer::after {
+      content: "";
+      position: absolute;
+      right: 5px;
+      top: 25%;
+      width: 2px;
+      height: 50%;
+      border-radius: 1px;
+      background: rgba(148,163,184,0.35); /* slate-400/35 */
+      box-shadow: 0 0 8px rgba(148,163,184,0.25);
+    }
+    body.resizing {
+      user-select: none;
+      cursor: col-resize;
+    }
   </style>
 </head>
 <body class="h-screen flex flex-col">
@@ -150,7 +174,12 @@
 
     <!-- Sidebar / Inspector -->
     <aside id="sidebar" class="sidebar border-slate-700 overflow-y-auto z-20
-      fixed md:static inset-y-0 right-0 w-11/12 max-w-sm md:w-[var(--sidebar-width)] border-l md:border-r transform translate-x-full md:translate-x-0 transition-transform duration-300">
+      fixed md:static inset-y-0 right-0 w-11/12 max-w-sm md:w-[var(--sidebar-width)] md:max-w-none
+      border-l md:border-r transform translate-x-full md:translate-x-0 transition-transform duration-300
+      relative">
+      <!-- Drag handle (desktop only) -->
+      <div id="sidebar-resizer" class="hidden md:block resizer" aria-hidden="true"></div>
+
       <div class="p-4 border-b border-slate-600 flex items-center justify-between">
         <div>
           <h2 class="text-xl font-bold text-slate-100">Inspector</h2>
@@ -246,7 +275,6 @@
     btnPresent.addEventListener('click', () => setPresenting(!presenting)); window.addEventListener('keydown', (e) => { if (e.key.toLowerCase() === 'p') setPresenting(!presenting); });
 
     // ==== DEMO DATA (will be replaced by API in production) ====
-    // Each block now includes hierarchy fields and cases[]
     const blocks = [
       { id: "123A", lat: 1.3101, lng: 103.856, status: "ok", townCouncil: "Bishan–Toa Payoh Town Council", division: "Toa Payoh East", precinct: "Precinct 1", zone: "Zone A",
         summary: { dry: 2, hose: 5, faulty: 0, due: 0 },
@@ -462,7 +490,6 @@
       `;
     }
 
-    // Decide marker colour by highest-priority case status; else by asset status
     function markerColorFor(block){
       const cs = (block.cases||[]).map(c=>c.status);
       for (const k of casePriority){ if (cs.includes(k)) return caseColors[k]; }
@@ -497,7 +524,6 @@
 
     function clearLayer(){ if (useCluster) cluster.clearLayers(); else cluster.eachLayer(l=>cluster.removeLayer(l)); markerIndex.clear(); }
 
-    // Add markers in batches to keep UI responsive
     function addMarkersChunked(items){
       const total = items.length; let i=0; progressBar && (progressBar.style.width = '0%');
       function step(){
@@ -551,8 +577,85 @@
     function stopCycle(){ if (!cycleTimer) return; clearInterval(cycleTimer); cycleTimer=null; btnCycle.textContent='Start cycle'; }
     btnCycle.addEventListener('click', () => { if (cycleTimer) stopCycle(); else startCycle(); });
 
+    // ==== RESIZABLE SIDEBAR (desktop) ====
+    const resizer = document.getElementById('sidebar-resizer');
+    const rootStyle = document.documentElement.style;
+    const MIN_W = 280;    // px
+    const MAX_W = 820;    // px
+    const LS_KEY = 'sidebarWidthPx';
+
+    // Apply saved width on load (desktop only)
+    (function applySavedWidth(){
+      const saved = localStorage.getItem(LS_KEY);
+      if (saved && window.innerWidth >= 768) {
+        rootStyle.setProperty('--sidebar-width', saved + 'px');
+        setTimeout(() => map.invalidateSize(), 100);
+      }
+    })();
+
+    let dragActive = false;
+    let sidebarLeft = 0;
+
+    function clientXFromEvent(evt){
+      if (evt.touches && evt.touches.length) return evt.touches[0].clientX;
+      if (evt.changedTouches && evt.changedTouches.length) return evt.changedTouches[0].clientX;
+      return evt.clientX;
+    }
+
+    function onDragMove(e) {
+      if (!dragActive) return;
+      const x = clientXFromEvent(e);
+      const width = Math.max(MIN_W, Math.min(MAX_W, x - sidebarLeft));
+      rootStyle.setProperty('--sidebar-width', width + 'px');
+      // throttle map relayout
+      if (typeof onDragMove._t !== 'number' || Date.now() - onDragMove._t > 50) {
+        map.invalidateSize();
+        onDragMove._t = Date.now();
+      }
+      e.preventDefault();
+    }
+
+    function onDragEnd() {
+      if (!dragActive) return;
+      dragActive = false;
+      document.body.classList.remove('resizing');
+      window.removeEventListener('mousemove', onDragMove);
+      window.removeEventListener('mouseup', onDragEnd);
+      window.removeEventListener('touchmove', onDragMove);
+      window.removeEventListener('touchend', onDragEnd);
+      // persist current width
+      const computed = getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width').trim();
+      const px = computed.endsWith('px') ? parseFloat(computed) : null;
+      if (px) localStorage.setItem(LS_KEY, String(px));
+      setTimeout(() => map.invalidateSize(), 80);
+    }
+
+    function onDragStart(e) {
+      if (window.innerWidth < 768) return; // desktop/tablet only
+      const rect = sidebar.getBoundingClientRect();
+      sidebarLeft = rect.left;
+      dragActive = true;
+      document.body.classList.add('resizing');
+      window.addEventListener('mousemove', onDragMove, { passive: false });
+      window.addEventListener('mouseup', onDragEnd);
+      window.addEventListener('touchmove', onDragMove, { passive: false });
+      window.addEventListener('touchend', onDragEnd);
+      e.preventDefault();
+    }
+
+    resizer?.addEventListener('mousedown', onDragStart);
+    resizer?.addEventListener('touchstart', onDragStart, { passive: false });
+
+    // Re-apply saved width when crossing breakpoints
+    window.addEventListener('resize', () => {
+      if (window.innerWidth >= 768) {
+        const saved = localStorage.getItem(LS_KEY);
+        if (saved) rootStyle.setProperty('--sidebar-width', saved + 'px');
+      }
+      setTimeout(() => map.invalidateSize(), 300);
+    });
+
     // ==== INIT ====
-    window.addEventListener('resize', () => { setTimeout(() => map.invalidateSize(), 300); });
     hydrateFilters();
     updateKPIs();
     rerender();
